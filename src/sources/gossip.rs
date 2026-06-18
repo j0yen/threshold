@@ -21,36 +21,35 @@ impl GossipSource {
     /// `source_root` overrides the filesystem root (testing seam).
     #[must_use]
     pub fn new(source_root: Option<&Path>) -> Self {
-        let gossip_path = if let Some(root) = source_root {
-            root.join("wintermute/autobuilder/notes/gossip.md")
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
-            PathBuf::from(home).join("wintermute/autobuilder/notes/gossip.md")
-        };
+        let gossip_path = source_root.map_or_else(
+            || {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+                PathBuf::from(home).join("wintermute/autobuilder/notes/gossip.md")
+            },
+            |root| root.join("wintermute/autobuilder/notes/gossip.md"),
+        );
         Self { gossip_path }
     }
 }
 
 impl SignalSource for GossipSource {
     fn collect(&self) -> Result<Vec<Signal>, anyhow::Error> {
-        let content = match std::fs::read_to_string(&self.gossip_path) {
-            Ok(c) => c,
-            Err(_) => return Ok(vec![]),
+        let Ok(content) = std::fs::read_to_string(&self.gossip_path) else {
+            return Ok(vec![]);
         };
 
         // Take last 500 bytes worth of content (whole lines only)
-        let tail: String = if content.len() > 500 {
+        let tail: &str = if content.len() > 500 {
             let bytes = content.as_bytes();
             let start = content.len() - 500;
-            // Back up to the next newline
-            let start = bytes[start..]
-                .iter()
-                .position(|&b| b == b'\n')
-                .map(|p| start + p + 1)
-                .unwrap_or(start);
-            content[start..].to_owned()
+            // Back up to the next newline boundary
+            let adjusted_start = bytes
+                .get(start..)
+                .and_then(|slice| slice.iter().position(|&b| b == b'\n'))
+                .map_or(start, |p| start + p + 1);
+            content.get(adjusted_start..).unwrap_or(&content)
         } else {
-            content.clone()
+            &content
         };
 
         let signals: Vec<Signal> = tail

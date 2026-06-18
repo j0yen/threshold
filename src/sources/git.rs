@@ -25,21 +25,21 @@ impl GitSource {
     /// `source_root` overrides the filesystem root (testing seam).
     #[must_use]
     pub fn new(source_root: Option<&Path>) -> Self {
-        let wintermute_dir = if let Some(root) = source_root {
-            root.join("wintermute")
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
-            PathBuf::from(home).join("wintermute")
-        };
+        let wintermute_dir = source_root.map_or_else(
+            || {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+                PathBuf::from(home).join("wintermute")
+            },
+            |root| root.join("wintermute"),
+        );
         Self { wintermute_dir }
     }
 }
 
 impl SignalSource for GitSource {
     fn collect(&self) -> Result<Vec<Signal>, anyhow::Error> {
-        let entries = match std::fs::read_dir(&self.wintermute_dir) {
-            Ok(e) => e,
-            Err(_) => return Ok(vec![]),
+        let Ok(entries) = std::fs::read_dir(&self.wintermute_dir) else {
+            return Ok(vec![]);
         };
 
         let mut signals = Vec::new();

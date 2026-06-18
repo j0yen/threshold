@@ -21,21 +21,21 @@ impl RecallSource {
     /// `source_root` overrides the filesystem root (testing seam; see module docs).
     #[must_use]
     pub fn new(source_root: Option<&Path>) -> Self {
-        let log_path = if let Some(root) = source_root {
-            root.join("recall/reflective.log")
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
-            PathBuf::from(home).join(".local/share/recall/reflective.log")
-        };
+        let log_path = source_root.map_or_else(
+            || {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+                PathBuf::from(home).join(".local/share/recall/reflective.log")
+            },
+            |root| root.join("recall/reflective.log"),
+        );
         Self { log_path }
     }
 }
 
 impl SignalSource for RecallSource {
     fn collect(&self) -> Result<Vec<Signal>, anyhow::Error> {
-        let content = match std::fs::read_to_string(&self.log_path) {
-            Ok(c) => c,
-            Err(_) => return Ok(vec![]),
+        let Ok(content) = std::fs::read_to_string(&self.log_path) else {
+            return Ok(vec![]);
         };
 
         let signals: Vec<Signal> = content

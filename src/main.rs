@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 
-use threshold::{Briefing, SourceSet};
+use threshold::SourceSet;
 
 fn main() -> std::process::ExitCode {
     sigpipe::reset();

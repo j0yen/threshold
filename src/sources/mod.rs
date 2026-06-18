@@ -80,12 +80,10 @@ impl SourceSet {
     pub fn collect_all(&self) -> Vec<Signal> {
         let mut signals = Vec::new();
         for src in &self.sources {
-            match src.collect() {
-                Ok(s) => signals.extend(s),
-                Err(_) => {
-                    // Source failed — degraded to empty contribution
-                }
+            if let Ok(s) = src.collect() {
+                signals.extend(s);
             }
+            // On Err: source failed — degraded to empty contribution
         }
         signals
     }

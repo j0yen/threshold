@@ -38,6 +38,9 @@ print_stderr = "warn"
 module_name_repetitions = "allow"
 missing_errors_doc = "warn"
 missing_panics_doc = "warn"
+# SignalSource::name() trait returns &str; impls return string literals.
+# The 'static bound is stronger than needed for the trait contract.
+unnecessary_literal_bound = "allow"
 
 [profile.dev]
 opt-level = 0

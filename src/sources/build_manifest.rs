@@ -24,21 +24,21 @@ impl BuildManifestSource {
     /// `source_root` overrides the filesystem root (testing seam).
     #[must_use]
     pub fn new(source_root: Option<&Path>) -> Self {
-        let manifest_path = if let Some(root) = source_root {
-            root.join(".claude/skills/build/state/manifest.json")
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
-            PathBuf::from(home).join(".claude/skills/build/state/manifest.json")
-        };
+        let manifest_path = source_root.map_or_else(
+            || {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+                PathBuf::from(home).join(".claude/skills/build/state/manifest.json")
+            },
+            |root| root.join(".claude/skills/build/state/manifest.json"),
+        );
         Self { manifest_path }
     }
 }
 
 impl SignalSource for BuildManifestSource {
     fn collect(&self) -> Result<Vec<Signal>, anyhow::Error> {
-        let content = match std::fs::read_to_string(&self.manifest_path) {
-            Ok(c) => c,
-            Err(_) => return Ok(vec![]),
+        let Ok(content) = std::fs::read_to_string(&self.manifest_path) else {
+            return Ok(vec![]);
         };
 
         let manifest: serde_json::Value = match serde_json::from_str(&content) {
@@ -46,9 +46,8 @@ impl SignalSource for BuildManifestSource {
             Err(_) => return Ok(vec![]),
         };
 
-        let prds = match manifest.get("prds").and_then(|v| v.as_array()) {
-            Some(arr) => arr,
-            None => return Ok(vec![]),
+        let Some(prds) = manifest.get("prds").and_then(|v| v.as_array()) else {
+            return Ok(vec![]);
         };
 
         let mut signals = Vec::new();

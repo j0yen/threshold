@@ -21,21 +21,21 @@ impl DocketSource {
     /// `source_root` overrides the filesystem root (testing seam).
     #[must_use]
     pub fn new(source_root: Option<&Path>) -> Self {
-        let docket_path = if let Some(root) = source_root {
-            root.join("wintermute/autobuilder/notes/docket.md")
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
-            PathBuf::from(home).join("wintermute/autobuilder/notes/docket.md")
-        };
+        let docket_path = source_root.map_or_else(
+            || {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+                PathBuf::from(home).join("wintermute/autobuilder/notes/docket.md")
+            },
+            |root| root.join("wintermute/autobuilder/notes/docket.md"),
+        );
         Self { docket_path }
     }
 }
 
 impl SignalSource for DocketSource {
     fn collect(&self) -> Result<Vec<Signal>, anyhow::Error> {
-        let content = match std::fs::read_to_string(&self.docket_path) {
-            Ok(c) => c,
-            Err(_) => return Ok(vec![]),
+        let Ok(content) = std::fs::read_to_string(&self.docket_path) else {
+            return Ok(vec![]);
         };
 
         let signals: Vec<Signal> = content

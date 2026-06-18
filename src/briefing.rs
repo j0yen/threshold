@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::signal::SignalKind;
 
 /// A single item in the synthesized briefing.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BriefingItem {
     /// Semantic kind (matches the [`SignalKind`] that produced this item).
     pub kind: SignalKind,
@@ -83,7 +83,7 @@ impl Briefing {
 
     /// Check whether this briefing has any items at all.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.total_items == 0
     }
 }

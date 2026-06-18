@@ -59,7 +59,7 @@ impl Signal {
 
     /// Set freshness in seconds.
     #[must_use]
-    pub fn with_freshness(mut self, secs: u64) -> Self {
+    pub const fn with_freshness(mut self, secs: u64) -> Self {
         self.freshness_secs = Some(secs);
         self
     }

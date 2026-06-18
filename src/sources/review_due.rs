@@ -22,12 +22,13 @@ impl ReviewDueSource {
     /// `source_root` overrides the filesystem root (testing seam).
     #[must_use]
     pub fn new(source_root: Option<&Path>) -> Self {
-        let flag_path = if let Some(root) = source_root {
-            root.join(".claude/skills/build/state/review-due")
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
-            PathBuf::from(home).join(".claude/skills/build/state/review-due")
-        };
+        let flag_path = source_root.map_or_else(
+            || {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+                PathBuf::from(home).join(".claude/skills/build/state/review-due")
+            },
+            |root| root.join(".claude/skills/build/state/review-due"),
+        );
         Self { flag_path }
     }
 }
