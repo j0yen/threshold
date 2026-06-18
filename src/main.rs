@@ -180,49 +180,51 @@ fn load_letter(args: &VerifyArgs) -> Result<String> {
     Ok(latest)
 }
 
-/// Fetch a recall note body by ID.
+/// Fetch a recall note body by ID via `recall show <id>`.
 fn recall_get(id: &str) -> Result<String> {
     let out = std::process::Command::new("recall")
-        .args(["get", id])
+        .args(["show", id])
         .output()?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        Err(anyhow::anyhow!("recall get {id} failed: {stderr}"))
+        Err(anyhow::anyhow!("recall show {id} failed: {stderr}"))
     }
 }
 
 /// Get the body of the latest `reflective/self` recall note.
 ///
-/// Falls back to reading the raw reflective log tail when `recall list` fails
+/// Uses `recall list --kind reflective --limit 1` to get the ID, then
+/// `recall show <id>` for the full body.
+/// Falls back to reading the raw reflective log tail when `recall` fails
 /// (e.g. no `recall` binary on `PATH`).
 fn recall_latest_reflective(source_root: Option<&std::path::Path>) -> Result<String> {
-    // Try `recall list --kind reflective --limit 1 --format json`.
-    let out = std::process::Command::new("recall")
-        .args(["list", "--kind", "reflective", "--limit", "1", "--format", "json"])
+    // Step 1: get the ID of the latest reflective note.
+    let list_out = std::process::Command::new("recall")
+        .args(["list", "--kind", "reflective", "--limit", "1"])
         .output();
 
-    if let Ok(o) = out {
+    if let Ok(o) = list_out {
         if o.status.success() {
             let stdout = String::from_utf8_lossy(&o.stdout);
-            // Parse JSON array and extract the first entry's body.
-            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&stdout) {
-                if let Some(body) = arr
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|e| e.get("body"))
-                    .and_then(|b| b.as_str())
-                {
-                    return Ok(body.to_owned());
+            // Output is like: "01KVCTMDKY25939E4D3AGDNN7E  [reflective/self]  ..."
+            // Extract the first word (the ID).
+            if let Some(id) = stdout.split_whitespace().next() {
+                // Step 2: get the full body via `recall show <id>`.
+                let show_out = std::process::Command::new("recall")
+                    .args(["show", id])
+                    .output();
+                if let Ok(so) = show_out {
+                    if so.status.success() {
+                        return Ok(String::from_utf8_lossy(&so.stdout).into_owned());
+                    }
                 }
-                // Fallback: return the raw JSON text so extract_claims can parse lines.
-                return Ok(stdout.into_owned());
             }
         }
     }
 
-    // Fallback: read the last 200 lines of the reflective log.
+    // Fallback: read the last 200 lines of the reflective log file.
     let log_path = source_root.map_or_else(
         || {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
