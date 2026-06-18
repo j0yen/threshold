@@ -1,9 +1,9 @@
-//! threshold — session arrival briefing synthesizer.
+//! `threshold` — session arrival briefing synthesizer.
 //!
 //! Gathers signals from multiple sources (recall, gossip, build manifest,
 //! git, docket, review-due) and synthesizes them into a single prioritized
 //! arrival briefing. Designed to replace the ~21 KB firehose of unsynthesized
-//! SessionStart hook output.
+//! `SessionStart` hook output.
 
 use std::path::PathBuf;
 
@@ -17,7 +17,11 @@ fn main() -> std::process::ExitCode {
     match run() {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("threshold: error: {e:#}");
+            // Print to stderr is expected for CLI error reporting
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!("threshold: error: {e:#}");
+            }
             std::process::ExitCode::FAILURE
         }
     }
@@ -38,6 +42,8 @@ fn cmd_brief(args: BriefArgs) -> Result<std::process::ExitCode> {
     let signals = sources.collect_all();
     let briefing = threshold::synthesize(signals, max_items);
 
+    // Print to stdout is the purpose of this CLI
+    #[allow(clippy::print_stdout)]
     match args.format {
         Format::Text => {
             let text = briefing.render_text();
