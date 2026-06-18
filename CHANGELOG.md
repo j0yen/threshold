@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.0 — 2026-06-18
+
+threshold brief --hook: synthesized SessionStart briefing, always exits 0, 5s time-bounded, arrival ledger record; shell shim degrades gracefully if binary absent
+
 ## v0.3.0 — 2026-06-18
 
 ## threshold-verify

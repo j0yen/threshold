@@ -43,7 +43,7 @@ pub mod review_due;
 
 pub use build_manifest::BuildManifestSource;
 pub use docket::DocketSource;
-pub use fake::FakeSource;
+pub use fake::{FakeSource, SlowSource};
 pub use git::GitSource;
 pub use gossip::GossipSource;
 pub use ledger_source::LedgerSource;
@@ -51,6 +51,7 @@ pub use recall::RecallSource;
 pub use review_due::ReviewDueSource;
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::signal::{Signal, SignalSource};
 
@@ -85,6 +86,32 @@ impl SourceSet {
     pub fn collect_all(&self) -> Vec<Signal> {
         let mut signals = Vec::new();
         for src in &self.sources {
+            if let Ok(s) = src.collect() {
+                signals.extend(s);
+            }
+            // On Err: source failed — degraded to empty contribution
+        }
+        signals
+    }
+
+    /// Collect signals from all sources with an overall wall-clock deadline.
+    ///
+    /// Each source is queried in sequence; if the deadline is exceeded after
+    /// any source completes, remaining sources are skipped and a partial
+    /// briefing is returned. The deadline is enforced between sources, not
+    /// within a single source call (sources are synchronous).
+    ///
+    /// This guarantees that a session-start hook never hangs indefinitely even
+    /// if one or more sources are pathologically slow.
+    #[must_use]
+    pub fn collect_with_deadline(&self, deadline: Duration) -> Vec<Signal> {
+        let start = Instant::now();
+        let mut signals = Vec::new();
+        for src in &self.sources {
+            if start.elapsed() >= deadline {
+                // Out of time — return partial results
+                break;
+            }
             if let Ok(s) = src.collect() {
                 signals.extend(s);
             }

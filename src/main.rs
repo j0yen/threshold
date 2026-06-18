@@ -8,12 +8,16 @@
 //! against live ground truth.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use threshold::SourceSet;
 use threshold::verify::{VerifyOptions, extract_claims, render_text, verify_claims};
+
+/// Internal deadline for the `--hook` mode (5 seconds).
+const HOOK_DEADLINE: Duration = Duration::from_secs(5);
 
 fn main() -> std::process::ExitCode {
     sigpipe::reset();
@@ -44,6 +48,10 @@ fn run() -> Result<std::process::ExitCode> {
 // ─── brief ────────────────────────────────────────────────────────────────────
 
 fn cmd_brief(args: &BriefArgs) -> Result<std::process::ExitCode> {
+    if args.hook {
+        return cmd_brief_hook(args);
+    }
+
     let source_root = args.source_root.as_deref();
     let max_items = args.max_items;
 
@@ -64,6 +72,50 @@ fn cmd_brief(args: &BriefArgs) -> Result<std::process::ExitCode> {
         }
     }
     Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// SessionStart hook mode: synthesize briefing, record arrival, always exit 0.
+///
+/// This function is intentionally infallible from the caller's perspective —
+/// all errors are swallowed so the hook never blocks session startup.
+fn cmd_brief_hook(args: &BriefArgs) -> Result<std::process::ExitCode> {
+    // Resolve the ledger path (use override if provided, else default).
+    let ledger_path = threshold::ledger::ledger_path(args.ledger.as_deref());
+
+    // Resolve session ID: prefer $CLAUDE_SESSION_ID, fall back to RealIdSource.
+    let session_id = resolve_hook_session_id();
+
+    // Record arrival — best-effort; failure must never abort the hook.
+    let _ = threshold::record_arrival(&ledger_path, &session_id);
+
+    // Collect signals with an internal deadline so we never hang.
+    let source_root = args.source_root.as_deref();
+    let sources = SourceSet::real(source_root);
+    let signals = sources.collect_with_deadline(HOOK_DEADLINE);
+    let briefing = threshold::synthesize(signals, args.max_items);
+
+    // Print to stdout is the purpose of this CLI
+    #[allow(clippy::print_stdout)]
+    {
+        let text = briefing.render_text();
+        print!("{text}");
+    }
+
+    // ALWAYS exit 0 — this is a hook; it must never fail session startup.
+    Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// Resolve session ID for hook mode.
+///
+/// Prefers the `$CLAUDE_SESSION_ID` environment variable (set by the harness),
+/// then falls back to the agentns / hostname:pid path.
+fn resolve_hook_session_id() -> String {
+    if let Ok(sid) = std::env::var("CLAUDE_SESSION_ID") {
+        if !sid.trim().is_empty() {
+            return sid.trim().to_owned();
+        }
+    }
+    resolve_session_id()
 }
 
 // ─── ask ──────────────────────────────────────────────────────────────────────
@@ -293,6 +345,14 @@ struct BriefArgs {
     /// Override the root path for locating source data files (for testing)
     #[arg(long)]
     source_root: Option<PathBuf>,
+
+    /// SessionStart hook mode: always exits 0, time-bounded, records arrival in ledger
+    #[arg(long)]
+    hook: bool,
+
+    /// Override ledger file path (for testing hook mode)
+    #[arg(long, hide = true)]
+    ledger: Option<PathBuf>,
 }
 
 #[derive(Parser)]

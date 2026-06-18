@@ -51,6 +51,13 @@ pub struct LedgerRecord {
     pub answered_by_session: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer: Option<String>,
+    // Arrival-only fields
+    /// Session ID that arrived (for `kind = "arrival"` records).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arrival_session: Option<String>,
+    /// Record type discriminant (e.g. `"arrival"`); absent on question/answer records.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 /// An open (unanswered) question — the schema for `threshold open --format json`.
@@ -121,6 +128,33 @@ fn dirs_from_env() -> Option<PathBuf> {
 
 // ─── Core operations ──────────────────────────────────────────────────────────
 
+/// Append an `arrival` record to the ledger.
+///
+/// Called by `threshold brief --hook` to record each session start.
+/// Returns the new record's `id`.
+///
+/// # Errors
+///
+/// Returns an error if the ledger file or its parent directory cannot be
+/// created or written to.
+pub fn record_arrival(path: &Path, session_id: &str) -> Result<String> {
+    let id = new_id();
+    let ts = Utc::now().to_rfc3339();
+    let record = LedgerRecord {
+        id: id.clone(),
+        ts,
+        asked_by_session: None,
+        question: None,
+        tags: vec![],
+        answered_by_session: None,
+        answer: None,
+        arrival_session: Some(session_id.to_owned()),
+        kind: Some("arrival".to_owned()),
+    };
+    append_record(path, &record)?;
+    Ok(id)
+}
+
 /// Append a question record to the ledger.
 ///
 /// Returns the new question's `id`.
@@ -145,6 +179,8 @@ pub fn ask(
         tags,
         answered_by_session: None,
         answer: None,
+        arrival_session: None,
+        kind: None,
     };
     append_record(path, &record)?;
     Ok(id)
@@ -194,6 +230,8 @@ pub fn answer(
         tags: vec![],
         answered_by_session: Some(session_id.to_owned()),
         answer: Some(answer_text.to_owned()),
+        arrival_session: None,
+        kind: None,
     };
     append_record(path, &record)
 }
