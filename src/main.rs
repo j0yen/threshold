@@ -3,7 +3,9 @@
 //! Gathers signals from multiple sources (recall, gossip, build manifest,
 //! git, docket, review-due, ledger) and synthesizes them into a single
 //! prioritized arrival briefing. Also provides an append-only question
-//! ledger for predecessor→successor session hand-off.
+//! ledger for predecessor→successor session hand-off, and `threshold verify`
+//! which parses the latest reflective letter and cross-checks each claim
+//! against live ground truth.
 
 use std::path::PathBuf;
 
@@ -11,6 +13,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use threshold::SourceSet;
+use threshold::verify::{VerifyOptions, extract_claims, render_text, verify_claims};
 
 fn main() -> std::process::ExitCode {
     sigpipe::reset();
@@ -34,6 +37,7 @@ fn run() -> Result<std::process::ExitCode> {
         Commands::Ask(ref args) => cmd_ask(args),
         Commands::Answer(ref args) => cmd_answer(args),
         Commands::Open(ref args) => cmd_open(args),
+        Commands::Verify(ref args) => cmd_verify(args),
     }
 }
 
@@ -134,6 +138,113 @@ fn cmd_open(args: &OpenArgs) -> Result<std::process::ExitCode> {
     Ok(std::process::ExitCode::SUCCESS)
 }
 
+// ─── verify ───────────────────────────────────────────────────────────────────
+
+fn cmd_verify(args: &VerifyArgs) -> Result<std::process::ExitCode> {
+    // Locate the reflective note to parse.
+    let letter_text = load_letter(args)?;
+
+    let opts = VerifyOptions {
+        source_root: args.source_root.clone(),
+    };
+
+    let claims = extract_claims(&letter_text);
+    let verdicts = verify_claims(&claims, &opts);
+
+    // Print to stdout is the purpose of this CLI
+    #[allow(clippy::print_stdout)]
+    match args.format {
+        Format::Text => {
+            let text = render_text(&verdicts);
+            print!("{text}");
+        }
+        Format::Json => {
+            let json = serde_json::to_string_pretty(&verdicts)?;
+            println!("{json}");
+        }
+    }
+
+    Ok(std::process::ExitCode::SUCCESS)
+}
+
+/// Load the letter text from the recall reflective store or the fixture seam.
+fn load_letter(args: &VerifyArgs) -> Result<String> {
+    if let Some(ref note_id) = args.note {
+        // Specific note ID: `recall get <id>`
+        return recall_get(note_id);
+    }
+
+    // Default: try `recall list --kind reflective --limit 1 --format json` and
+    // get the body of the latest entry.
+    let latest = recall_latest_reflective(args.source_root.as_deref())?;
+    Ok(latest)
+}
+
+/// Fetch a recall note body by ID.
+fn recall_get(id: &str) -> Result<String> {
+    let out = std::process::Command::new("recall")
+        .args(["get", id])
+        .output()?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        Err(anyhow::anyhow!("recall get {id} failed: {stderr}"))
+    }
+}
+
+/// Get the body of the latest `reflective/self` recall note.
+///
+/// Falls back to reading the raw reflective log tail when `recall list` fails
+/// (e.g. no `recall` binary on `PATH`).
+fn recall_latest_reflective(source_root: Option<&std::path::Path>) -> Result<String> {
+    // Try `recall list --kind reflective --limit 1 --format json`.
+    let out = std::process::Command::new("recall")
+        .args(["list", "--kind", "reflective", "--limit", "1", "--format", "json"])
+        .output();
+
+    if let Ok(o) = out {
+        if o.status.success() {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            // Parse JSON array and extract the first entry's body.
+            if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                if let Some(body) = arr
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|e| e.get("body"))
+                    .and_then(|b| b.as_str())
+                {
+                    return Ok(body.to_owned());
+                }
+                // Fallback: return the raw JSON text so extract_claims can parse lines.
+                return Ok(stdout.into_owned());
+            }
+        }
+    }
+
+    // Fallback: read the last 200 lines of the reflective log.
+    let log_path = source_root.map_or_else(
+        || {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_owned());
+            std::path::PathBuf::from(home).join(".local/share/recall/reflective.log")
+        },
+        |root| root.join("recall/reflective.log"),
+    );
+
+    let content = std::fs::read_to_string(&log_path).unwrap_or_default();
+    let last_lines: String = content
+        .lines()
+        .rev()
+        .take(200)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(last_lines)
+}
+
 // ─── Session ID resolution ────────────────────────────────────────────────────
 
 fn resolve_session_id() -> String {
@@ -163,6 +274,8 @@ enum Commands {
     Answer(AnswerArgs),
     /// List unanswered questions left by predecessors
     Open(OpenArgs),
+    /// Parse the latest reflective letter and cross-check each claim against live ground truth
+    Verify(VerifyArgs),
 }
 
 #[derive(Parser)]
@@ -216,6 +329,21 @@ struct OpenArgs {
     /// Override ledger file path (for testing)
     #[arg(long, hide = true)]
     ledger: Option<PathBuf>,
+}
+
+#[derive(Parser)]
+struct VerifyArgs {
+    /// Output format
+    #[arg(long, default_value = "text")]
+    format: Format,
+
+    /// Target a specific recall note by ID (default: latest reflective note)
+    #[arg(long)]
+    note: Option<String>,
+
+    /// Override the root path for locating source data files (for testing)
+    #[arg(long)]
+    source_root: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Clone)]

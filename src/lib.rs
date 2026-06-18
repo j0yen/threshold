@@ -60,9 +60,11 @@ pub mod session_id;
 pub mod signal;
 pub mod sources;
 pub mod synthesizer;
+pub mod verify;
 
 pub use briefing::{Briefing, BriefingItem};
 pub use ledger::{OpenQuestion, OpenQuestionsOutput};
 pub use signal::{Signal, SignalKind, SignalSource};
 pub use sources::SourceSet;
 pub use synthesizer::synthesize;
+pub use verify::{ClaimVerdict, VerdictStatus, VerifyOptions, extract_claims, verify_claims};
