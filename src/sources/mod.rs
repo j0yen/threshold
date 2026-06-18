@@ -14,6 +14,7 @@
 //! | [`GitSource`] | `git status --short` + `git log @{u}..HEAD` under `~/wintermute/*` | `Changed` |
 //! | [`DocketSource`] | `~/wintermute/autobuilder/notes/docket.md` (open findings) | `Owed` |
 //! | [`ReviewDueSource`] | `~/.claude/skills/build/state/review-due` (flag file) | `Owed` |
+//! | [`LedgerSource`] | `$XDG_STATE_HOME/threshold/ledger.jsonl` (open questions) | `Owed` |
 //!
 //! ## `--source-root` Testing Seam
 //!
@@ -29,12 +30,14 @@
 //! - `GitSource` scans `/tmp/fixtures/wintermute/` for git repos
 //! - `DocketSource` reads `/tmp/fixtures/wintermute/autobuilder/notes/docket.md`
 //! - `ReviewDueSource` checks `/tmp/fixtures/.claude/skills/build/state/review-due`
+//! - `LedgerSource` reads `/tmp/fixtures/threshold/ledger.jsonl`
 
 pub mod build_manifest;
 pub mod docket;
 pub mod fake;
 pub mod git;
 pub mod gossip;
+pub mod ledger_source;
 pub mod recall;
 pub mod review_due;
 
@@ -43,6 +46,7 @@ pub use docket::DocketSource;
 pub use fake::FakeSource;
 pub use git::GitSource;
 pub use gossip::GossipSource;
+pub use ledger_source::LedgerSource;
 pub use recall::RecallSource;
 pub use review_due::ReviewDueSource;
 
@@ -71,6 +75,7 @@ impl SourceSet {
                 Box::new(GitSource::new(r)),
                 Box::new(DocketSource::new(r)),
                 Box::new(ReviewDueSource::new(r)),
+                Box::new(LedgerSource::new(r)),
             ],
         }
     }
