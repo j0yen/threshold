@@ -30,11 +30,11 @@ fn main() -> std::process::ExitCode {
 fn run() -> Result<std::process::ExitCode> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Brief(args) => cmd_brief(args),
+        Commands::Brief(ref args) => cmd_brief(args),
     }
 }
 
-fn cmd_brief(args: BriefArgs) -> Result<std::process::ExitCode> {
+fn cmd_brief(args: &BriefArgs) -> Result<std::process::ExitCode> {
     let source_root = args.source_root.as_deref();
     let max_items = args.max_items;
 
