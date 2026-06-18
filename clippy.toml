@@ -1,0 +1,4 @@
+# clippy.toml — project-level clippy config.
+# Most lint configuration is in Cargo.toml [lints.clippy].
+# This file is for clippy settings that require key=value syntax.
+msrv = "1.85"

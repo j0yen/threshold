@@ -1,0 +1,117 @@
+{
+  "schema": "autobuilder.intent_card.v1",
+  "prd_source": "/home/jsy/wintermute/autobuilder/PRD-threshold-brief.md",
+  "root_motivation": "Ten independent SessionStart hooks emit ~21 KB of raw, unsynthesized text into every Claude session. No tool consolidates these signals into a single prioritized briefing. The developer (Joe Yen) loses orientation time at session open because there is no structured arrival summary — only a firehose of raw dumps from recall, agorabus, git status, self-review docket, and build manifest. The threshold CLI synthesizes these sources into one ≤4 KB briefing so every Claude session starts oriented rather than overwhelmed.",
+  "user_persona": "Joe Yen running Claude Code sessions on a wintermute laptop; threshold brief is invoked by a SessionStart hook (or manually) to produce an arrival briefing. Also consumed by machine agents via --format json.",
+  "unfakeable_metric": {
+    "name": "acceptance_tests_passing_count",
+    "lower_is_better": false,
+    "harness_command": "bash scripts/run-metrics.sh",
+    "target": 7
+  },
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "level": "MUST",
+      "description": "cargo build and cargo test are green; cargo clippy adds no new warnings over the autobuilder baseline; binary installs to ~/.local/bin/threshold.",
+      "test": "tests/acceptance_ac1.rs — cargo build succeeds, cargo test passes, cargo clippy --workspace -- -D warnings exits 0, binary present at ~/.local/bin/threshold after install"
+    },
+    {
+      "id": "AC2",
+      "level": "MUST",
+      "description": "threshold brief --format json against a FakeSource fixture set produces a Briefing with the documented sections and a stable, documented JSON schema validated by a test.",
+      "test": "tests/acceptance_ac2.rs — runs threshold::briefing::synthesize with FakeSource inputs, asserts JSON output validates against the documented Briefing schema with all required section keys present"
+    },
+    {
+      "id": "AC3",
+      "level": "MUST",
+      "description": "The synthesizer is a pure function (no I/O in its signature) and is covered by unit tests for: dedup of identical signals, priority ordering, section assignment, and the --max-items cap.",
+      "test": "tests/acceptance_ac3.rs — calls synthesize() directly with crafted Vec<Signal> inputs, asserts dedup, ordering, section assignment, and max-items truncation"
+    },
+    {
+      "id": "AC4",
+      "level": "MUST",
+      "description": "Each real SignalSource degrades to an empty contribution (not an error and not a panic) when its backing data is missing or malformed — proven by a test that points a source at a nonexistent path.",
+      "test": "tests/acceptance_ac4.rs — constructs each concrete SignalSource with a nonexistent/malformed path and asserts collect() returns Ok(vec![])"
+    },
+    {
+      "id": "AC5",
+      "level": "MUST",
+      "description": "threshold brief (text mode) run live on this box produces a non-empty, sectioned briefing under ≤4 KB and completes in < 500 ms cold.",
+      "test": "tests/acceptance_ac5.rs — spawns threshold brief with --source-root pointing at a fixture directory, asserts output non-empty, byte count ≤ 4096, wall time < 500ms"
+    },
+    {
+      "id": "AC6",
+      "level": "MUST",
+      "description": "First line of main() is sigpipe::reset(); threshold brief | head does not panic.",
+      "test": "tests/acceptance_ac6.rs — reads src/main.rs and asserts sigpipe::reset() is the first statement; spawns threshold brief | head and asserts exit code is not 141 (SIGPIPE)"
+    },
+    {
+      "id": "AC7",
+      "level": "MUST",
+      "description": "README documents every source, the JSON schema, and the --source-root testing seam.",
+      "test": "tests/acceptance_ac7.rs — reads README.md and asserts presence of all six source names, 'JSON schema' section, and '--source-root' documentation"
+    }
+  ],
+  "scope": [
+    "threshold CLI binary with a 'brief' subcommand",
+    "Signal enum/struct with kind, title, body, priority, source, freshness fields",
+    "Briefing struct with four documented sections: Mid-flight, Owed to you, Changed since last session, Don't redo",
+    "SignalSource trait with six concrete implementations: RecallSource, GossipSource, BuildManifestSource, GitSource, DocketSource, ReviewDueSource",
+    "FakeSource implementation for deterministic testing",
+    "Pure synthesize(signals: Vec<Signal>) -> Briefing function — no I/O",
+    "--format text|json output modes",
+    "--max-items N cap",
+    "--source-root <path> testing seam",
+    "Install script to ~/.local/bin/threshold",
+    "README with source documentation, JSON schema, and testing seam"
+  ],
+  "non_goals": [
+    "Claim verification (threshold-verify — later PRD)",
+    "Ask/answer ledger (threshold-ledger — later PRD)",
+    "Hook wiring to replace the existing SessionStart hooks (threshold-hook — later PRD)",
+    "Network fetches or remote data sources",
+    "TUI or interactive mode",
+    "Caching of signals between runs",
+    "Multi-machine or agorabus-remote sources"
+  ],
+  "hard_constraints": {
+    "rust_edition": "2021",
+    "target_kind": "cli",
+    "deny_unsafe": true,
+    "max_deps": 15,
+    "msrv": "1.85",
+    "additional": {
+      "sigpipe_reset": "First line of main() must be sigpipe::reset() — standing lesson from SIGPIPE-panic class"
+    }
+  },
+  "five_whys_trace": [
+    {
+      "why": 1,
+      "q": "Why build a new CLI instead of improving the existing hooks?",
+      "a": "The hooks are independent; consolidating in a hook would require one hook to depend on all others completing first, creating ordering and timing problems. A separate CLI is invoked after all hooks complete."
+    },
+    {
+      "why": 2,
+      "q": "Why does the synthesis need to be a pure function?",
+      "a": "Pure functions are unit-testable without I/O mocking overhead, and the 20+ KB firehose problem is fundamentally a data-transformation problem, not an I/O problem — the sources are already queryable."
+    },
+    {
+      "why": 3,
+      "q": "Why the ≤4 KB target specifically?",
+      "a": "4 KB is 1/5 of today's 20,888-byte firehose and fits comfortably in a single terminal screenful. Orientation without scrolling is the functional requirement."
+    }
+  ],
+  "ambiguities_resolved": [
+    {
+      "question": "Should threshold brief replace the existing hooks or supplement them?",
+      "resolution": "Supplement — the hooks continue to run; threshold brief is called afterward (or manually) to synthesize. Hook replacement is threshold-hook, a later PRD."
+    },
+    {
+      "question": "Which FakeSource fixture format should the JSON schema test use?",
+      "resolution": "In-memory FakeSource that implements SignalSource, exercised via threshold's public library API, not via CLI subprocess. The schema test serializes the Briefing struct directly."
+    }
+  ],
+  "created_at": "2026-06-18T00:00:00Z",
+  "intent_slug": "threshold-brief"
+}

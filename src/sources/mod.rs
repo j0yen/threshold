@@ -1,0 +1,92 @@
+//! Concrete [`SignalSource`] implementations.
+//!
+//! Each source is individually fallible: if its backing data is absent or
+//! malformed, it returns `Ok(vec![])` rather than propagating an error.
+//! This ensures a broken source never prevents the briefing from rendering.
+//!
+//! ## Sources
+//!
+//! | Source | Backing data | Signal kinds emitted |
+//! |--------|-------------|----------------------|
+//! | [`RecallSource`] | `recall list --kind reflective` (last 5 lines of `~/.local/share/recall/reflective.log`) | `Owed`, `DontRedo` |
+//! | [`GossipSource`] | `~/wintermute/autobuilder/notes/gossip.md` (last 500 bytes) | `InFlight`, `Owed` |
+//! | [`BuildManifestSource`] | `~/.claude/skills/build/state/manifest.json` | `InFlight`, `Owed` |
+//! | [`GitSource`] | `git status --short` + `git log @{u}..HEAD` under `~/wintermute/*` | `Changed` |
+//! | [`DocketSource`] | `~/wintermute/autobuilder/notes/docket.md` (open findings) | `Owed` |
+//! | [`ReviewDueSource`] | `~/.claude/skills/build/state/review-due` (flag file) | `Owed` |
+//!
+//! ## `--source-root` Testing Seam
+//!
+//! All sources accept an optional `source_root: Option<&Path>`. When set,
+//! each source resolves its backing data relative to that root instead of
+//! the real filesystem paths. This lets acceptance tests point at a fixture
+//! directory without touching real data.
+//!
+//! For example, with `--source-root /tmp/fixtures`:
+//! - `RecallSource` reads `/tmp/fixtures/recall/reflective.log`
+//! - `GossipSource` reads `/tmp/fixtures/wintermute/autobuilder/notes/gossip.md`
+//! - `BuildManifestSource` reads `/tmp/fixtures/.claude/skills/build/state/manifest.json`
+//! - `GitSource` scans `/tmp/fixtures/wintermute/` for git repos
+//! - `DocketSource` reads `/tmp/fixtures/wintermute/autobuilder/notes/docket.md`
+//! - `ReviewDueSource` checks `/tmp/fixtures/.claude/skills/build/state/review-due`
+
+pub mod build_manifest;
+pub mod docket;
+pub mod fake;
+pub mod git;
+pub mod gossip;
+pub mod recall;
+pub mod review_due;
+
+pub use build_manifest::BuildManifestSource;
+pub use docket::DocketSource;
+pub use fake::FakeSource;
+pub use git::GitSource;
+pub use gossip::GossipSource;
+pub use recall::RecallSource;
+pub use review_due::ReviewDueSource;
+
+use std::path::{Path, PathBuf};
+
+use crate::signal::{Signal, SignalSource};
+
+/// A set of all real sources configured for one `threshold brief` run.
+pub struct SourceSet {
+    sources: Vec<Box<dyn SignalSource>>,
+}
+
+impl SourceSet {
+    /// Build a `SourceSet` with all real sources.
+    ///
+    /// `source_root` overrides the filesystem root for all sources (testing seam).
+    #[must_use]
+    pub fn real(source_root: Option<&Path>) -> Self {
+        let root: Option<PathBuf> = source_root.map(Path::to_owned);
+        let r = root.as_deref();
+        Self {
+            sources: vec![
+                Box::new(RecallSource::new(r)),
+                Box::new(GossipSource::new(r)),
+                Box::new(BuildManifestSource::new(r)),
+                Box::new(GitSource::new(r)),
+                Box::new(DocketSource::new(r)),
+                Box::new(ReviewDueSource::new(r)),
+            ],
+        }
+    }
+
+    /// Collect signals from all sources, degrading gracefully on failure.
+    #[must_use]
+    pub fn collect_all(&self) -> Vec<Signal> {
+        let mut signals = Vec::new();
+        for src in &self.sources {
+            match src.collect() {
+                Ok(s) => signals.extend(s),
+                Err(_) => {
+                    // Source failed — degraded to empty contribution
+                }
+            }
+        }
+        signals
+    }
+}
